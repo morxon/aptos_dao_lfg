@@ -13,7 +13,7 @@ class Info:
         self.aptos = httpx.AsyncClient(base_url=node_url)
         self.account = account
 
-    async def get_all_nfts(self, result=None, end_result=[]) -> List[Any]:
+    async def get_all_nfts(self, result=None) -> List[Any]:
         result = [] if result is None else []
         handle_address = [log for log in (await self.aptos.get(
             f"accounts/{self.account.account_address}/resources")).json()

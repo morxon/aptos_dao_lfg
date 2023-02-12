@@ -1,6 +1,7 @@
 import httpx
 import time
-
+import asyncio
+from .config import tokens_for_mint
 from aptos_sdk.bcs import Serializer
 from aptos_sdk.client import RestClient, ApiError
 from aptos_sdk.authenticator import Authenticator, Ed25519Authenticator
@@ -21,30 +22,6 @@ class Nft:
             if response.status_code >= 400:
                 raise ApiError(response.text, response.status_code)
             return (response.json())["hash"]
-
-    async def mint_blue_move_public(self, len_nft: int, function: str, max_gas_amount: int, gas_unit_price: int):
-        function_data = function.split('::')
-        raw_tx = RawTransaction(
-            sender=self.account.account_address,
-            sequence_number=self.aptos.account_sequence_number(self.account.account_address),
-            payload=TransactionPayload(EntryFunction.natural(
-                f"{function_data[0]}::{function_data[1]}",
-                function_data[2],
-                [],
-                [
-                    TransactionArgument(len_nft, Serializer.u64),
-                ]
-            )),
-            max_gas_amount=max_gas_amount,
-            gas_unit_price=gas_unit_price,
-            expiration_timestamps_secs=int(time.time()) + 600,
-            chain_id=self.aptos.chain_id
-        )
-        signature = raw_tx.sign(self.account.private_key)
-        authenticator = Authenticator(Ed25519Authenticator(self.account.public_key(), signature))
-        sign_tx = SignedTransaction(raw_tx, authenticator)
-
-        return await self.send_tx(sign_tx)
 
     async def sell_blue_move(self, creator: str, collection: str, name: str, price: int, property_version):
         tx = self.aptos.submit_transaction(self.account, {
@@ -100,3 +77,43 @@ class Nft:
         sign_tx = SignedTransaction(raw_tx, authenticator)
 
         return await self.send_tx(sign_tx)
+
+
+class BlueMove(Nft):
+    def __init__(self, node_url, account, function, len_nft, gas_price, gas_amount, mint_time, token=None,
+                 white_list=False):
+        super().__init__(node_url, account)
+        self.mint_time = mint_time
+        self.token = token
+        self.white_list = white_list
+        self.sign_tx = self.create_tx(function, len_nft, gas_price, gas_amount)
+
+    def create_tx(self, function: str, len_nft: int, gas_price: int, gas_amount: int):
+        function_data = function.split('::')
+        event = "mint_with_quantity" if self.white_list is False else "mint_with_quantity_wl"
+        type_argument = [TypeTag(StructTag.from_str(tokens_for_mint[self.token]))] if self.token is not None else []
+
+        payload = TransactionPayload(EntryFunction.natural(
+            f"{function_data[0]}::{function_data[1]}", event, type_argument,
+            [TransactionArgument(len_nft, Serializer.u64)]))
+        raw_tx = RawTransaction(
+            sender=self.account.account_address,
+            sequence_number=self.aptos.account_sequence_number(self.account.account_address),
+            payload=payload,
+            max_gas_amount=gas_amount,
+            gas_unit_price=gas_price,
+            expiration_timestamps_secs=int(time.time()) + 600,
+            chain_id=self.aptos.chain_id
+        )
+
+        signature = raw_tx.sign(self.account.private_key)
+        authenticator = Authenticator(Ed25519Authenticator(self.account.public_key(), signature))
+        return SignedTransaction(raw_tx, authenticator)
+
+    async def mint(self):
+        if self.mint_time - time.time() > 0:
+            await asyncio.sleep(self.mint_time - time.time())
+            return await self.send_tx(self.sign_tx)
+        else:
+            print('mint end...')
+
