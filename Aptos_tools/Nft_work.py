@@ -50,6 +50,14 @@ class Nft:
 
         return tx
 
+    async def mint(self, sign_tx, mint_time):
+        if mint_time - time.time() > 0:
+            await asyncio.sleep(mint_time - time.time())
+            return await self.send_tx(sign_tx)
+        else:
+            print('mint end...')
+
+
     async def sell_topaz(self, creator: str, collection: str, name: str, price: int, property_version: int):
         raw_tx = RawTransaction(
             sender=self.account.account_address,
@@ -86,10 +94,13 @@ class BlueMove(Nft):
         self.mint_time = mint_time
         self.token = token
         self.white_list = white_list
-        self.sign_tx = self.create_tx(function, len_nft, gas_price, gas_amount)
+        self.function = function
+        self.len_nft = len_nft
+        self.gas_price = gas_price
+        self.gas_amount = gas_amount
 
-    def create_tx(self, function: str, len_nft: int, gas_price: int, gas_amount: int):
-        function_data = function.split('::')
+    def mint_nft(self):
+        function_data = self.function.split('::')
         event = "mint_with_quantity" if self.white_list is False else "mint_with_quantity_wl"
         type_argument = [TypeTag(StructTag.from_str(tokens_for_mint[self.token]))] if self.token is not None else []
 
@@ -98,68 +109,52 @@ class BlueMove(Nft):
             event,
             type_argument,
             [
-                TransactionArgument(int(len_nft), Serializer.u64)
+                TransactionArgument(int(self.len_nft), Serializer.u64)
             ]))
 
         raw_tx = RawTransaction(
             sender=self.account.account_address,
             sequence_number=self.aptos.account_sequence_number(self.account.account_address),
             payload=payload,
-            max_gas_amount=gas_amount,
-            gas_unit_price=gas_price,
+            max_gas_amount=self.gas_amount,
+            gas_unit_price=self.gas_price,
             expiration_timestamps_secs=int(time.time()) + 600,
             chain_id=self.aptos.chain_id
         )
 
         signature = raw_tx.sign(self.account.private_key)
         authenticator = Authenticator(Ed25519Authenticator(self.account.public_key(), signature))
-        return SignedTransaction(raw_tx, authenticator)
-
-    async def mint(self):
-        if self.mint_time - time.time() > 0:
-            await asyncio.sleep(self.mint_time - time.time())
-            return await self.send_tx(self.sign_tx)
-        else:
-            print('mint end...')
+        return self.mint(SignedTransaction(raw_tx, authenticator), self.mint_time)
 
 
 class Topaz(Nft):
-    def __init__(self, node_url, account, function, len_nft, gas_price, gas_amount, mint_time):
+    def __init__(self, node_url, account, contract_address, len_nft, gas_price, gas_amount, mint_time):
         super().__init__(node_url, account)
         self.mint_time = mint_time
-        self.sign_tx = self.create_tx(function, len_nft, gas_price, gas_amount)
+        self.contract_address = contract_address
+        self.len_nft = len_nft
+        self.gas_price = gas_price
+        self.gas_amount = gas_amount
 
-    def create_tx(self, function: str, len_nft: int, gas_price: int, gas_amount: int):
-        function_data = function.split('::')
-        event = "mint_with_quantity" if self.white_list is False else "mint_with_quantity_wl"
-        type_argument = [TypeTag(StructTag.from_str(tokens_for_mint[self.token]))] if self.token is not None else []
-
+    def mint_nft(self):
         payload = TransactionPayload(EntryFunction.natural(
-            f"{function_data[0]}::{function_data[1]}",
-            event,
-            type_argument,
+            f"{self.contract_address}::launchpad_nft",
+            "mint",
+            [],
             [
-                TransactionArgument(int(len_nft), Serializer.u64)
+                TransactionArgument(int(self.len_nft), Serializer.u64)
             ]))
 
         raw_tx = RawTransaction(
             sender=self.account.account_address,
             sequence_number=self.aptos.account_sequence_number(self.account.account_address),
             payload=payload,
-            max_gas_amount=gas_amount,
-            gas_unit_price=gas_price,
+            max_gas_amount=self.gas_amount,
+            gas_unit_price=self.gas_price,
             expiration_timestamps_secs=int(time.time()) + 600,
             chain_id=self.aptos.chain_id
         )
 
         signature = raw_tx.sign(self.account.private_key)
         authenticator = Authenticator(Ed25519Authenticator(self.account.public_key(), signature))
-        return SignedTransaction(raw_tx, authenticator)
-
-    async def mint(self):
-        if self.mint_time - time.time() > 0:
-            await asyncio.sleep(self.mint_time - time.time())
-            return await self.send_tx(self.sign_tx)
-        else:
-            print('mint end...')
-
+        return self.mint(SignedTransaction(raw_tx, authenticator), self.mint_time)
